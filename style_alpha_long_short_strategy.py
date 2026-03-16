@@ -15,11 +15,19 @@ from fund_strategy_pipeline import (
     build_factor_panel,
     build_factor_returns,
     build_nav_lookup,
+    calc_mean_sd_sharpe,
     classify_style,
     load_fund_metadata,
     load_rf_series,
     ols_with_pvalues,
 )
+
+
+INSUFFICIENT_DATA_THRESHOLD = 52
+ROLLING_STABILITY_START = 66
+ROLLING_WINDOW = 52
+STYLE_STABILITY_CUTOFF = 1.0
+DEFAULT_CLASSIFICATION_MODE = "scheduled_rolling"
 
 
 # ── 1. Data ──────────────────────────────────────────────────────────────────
@@ -64,12 +72,6 @@ def parse_args() -> argparse.Namespace:
         help="Rolling weekly lookback window used to estimate style exposure and alpha.",
     )
     parser.add_argument(
-        "--min-observations",
-        type=int,
-        default=52,
-        help="Minimum weekly observations required before a fund can enter a style bucket.",
-    )
-    parser.add_argument(
         "--long-quantile",
         type=float,
         default=0.10,
@@ -85,6 +87,25 @@ def parse_args() -> argparse.Namespace:
         "--exclude-alpha-bucket",
         action="store_true",
         help="Exclude funds classified as Alpha from the portfolio construction step.",
+    )
+    parser.add_argument(
+        "--classification-mode",
+        choices=["scheduled_rolling", "simple_significance"],
+        default=DEFAULT_CLASSIFICATION_MODE,
+        help=(
+            "Style classification rule used at each rebalance. "
+            "'scheduled_rolling' uses the <52 / 52-65 / >65 rule; "
+            "'simple_significance' uses a one-step significance rule."
+        ),
+    )
+    parser.add_argument(
+        "--simple-min-observations",
+        type=int,
+        default=52,
+        help=(
+            "Minimum history required by the simple_significance rule before a fund can be "
+            "classified by full-sample regression."
+        ),
     )
     return parser.parse_args()
 
@@ -164,7 +185,7 @@ def extract_snapshot_model_data(
     rm_rf: np.ndarray,
     smb: np.ndarray,
     hml: np.ndarray,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     prev_nav = np.concatenate(([np.nan], nav_series[:-1]))
     with np.errstate(divide="ignore", invalid="ignore"):
         full_returns = np.log(nav_series / prev_nav)
@@ -173,10 +194,57 @@ def extract_snapshot_model_data(
     aligned_returns = np.array([full_returns[nav_index[current_date]] for current_date in factor_dates], dtype=float)
     dates_array = np.array(factor_dates, dtype=object)
     model_mask = np.isfinite(aligned_returns) & np.isfinite(rf) & np.isfinite(rm_rf) & np.isfinite(smb) & np.isfinite(hml)
+    valid_positions = np.flatnonzero(model_mask)
     model_dates = dates_array[model_mask]
     model_y = aligned_returns[model_mask] - rf[model_mask]
     model_x = np.column_stack([np.ones(np.sum(model_mask)), rm_rf[model_mask], smb[model_mask], hml[model_mask]])
-    return model_dates, model_y, model_x
+    return model_dates, model_y, model_x, valid_positions
+
+
+def classify_style_scheduled_rolling(
+    period_row: Dict[str, object],
+    sharpe_row: Dict[str, object],
+) -> str:
+    data_point = int(period_row["data_point"])
+    if data_point < INSUFFICIENT_DATA_THRESHOLD:
+        return "Insufficient Data"
+
+    if data_point <= ROLLING_STABILITY_START - 1:
+        if (
+            math.isfinite(period_row["p_value_smb"])
+            and math.isfinite(period_row["p_value_hml"])
+            and period_row["p_value_smb"] < 0.05
+            and period_row["p_value_hml"] < 0.05
+        ):
+            return classify_style(period_row["coe_smb"], period_row["coe_hml"])
+        return "Alpha"
+
+    if (
+        math.isfinite(sharpe_row["smb_SR"])
+        and math.isfinite(sharpe_row["hml_SR"])
+        and abs(sharpe_row["smb_SR"]) > STYLE_STABILITY_CUTOFF
+        and abs(sharpe_row["hml_SR"]) > STYLE_STABILITY_CUTOFF
+    ):
+        return classify_style(sharpe_row["smb_SR"], sharpe_row["hml_SR"])
+    return "Alpha"
+
+
+def classify_style_simple_significance(
+    period_row: Dict[str, object],
+    min_observations: int,
+) -> str:
+    data_point = int(period_row["data_point"])
+    if data_point < min_observations:
+        return "Insufficient Data"
+
+    if (
+        math.isfinite(period_row["p_value_smb"])
+        and math.isfinite(period_row["p_value_hml"])
+        and period_row["p_value_smb"] < 0.05
+        and period_row["p_value_hml"] < 0.05
+    ):
+        return classify_style(period_row["coe_smb"], period_row["coe_hml"])
+    return "Alpha"
 
 
 def build_monthly_snapshot(
@@ -186,7 +254,8 @@ def build_monthly_snapshot(
     nav_dates: Sequence[date],
     nav_frame: pd.DataFrame,
     history_weeks: int,
-    min_observations: int,
+    classification_mode: str,
+    simple_min_observations: int,
 ) -> pd.DataFrame:
     factor_panel = build_factor_panel(
         factor_rows=factor_rows,
@@ -203,11 +272,19 @@ def build_monthly_snapshot(
     rm_rf = np.array([row["rm"] - row["return_compound"] for row in factor_panel], dtype=float)
     smb = np.array([row["smb"] for row in factor_panel], dtype=float)
     hml = np.array([row["hml"] for row in factor_panel], dtype=float)
+    full_x = np.column_stack([np.ones(len(factor_panel)), rm_rf, smb, hml])
 
-    snapshot_rows: List[Dict[str, object]] = []
-    for fund_code in nav_frame.columns:
+    period_rows: List[Dict[str, object]] = []
+    sharpe_rows: List[Dict[str, object]] = []
+    rolling_window_matrices: List[np.ndarray] = []
+    if len(full_x) >= ROLLING_WINDOW:
+        for start_index in range(len(full_x) + 1 - ROLLING_WINDOW):
+            window_x = full_x[start_index : start_index + ROLLING_WINDOW]
+            rolling_window_matrices.append(np.linalg.inv(window_x.T @ window_x) @ window_x.T)
+
+    for legacy_order, fund_code in enumerate(nav_frame.columns, start=1):
         nav_series = nav_frame[fund_code].to_numpy(dtype=float)
-        _, model_y, model_x = extract_snapshot_model_data(
+        _, model_y, model_x, valid_positions = extract_snapshot_model_data(
             nav_series=nav_series,
             nav_dates=nav_dates,
             factor_dates=factor_dates,
@@ -217,39 +294,137 @@ def build_monthly_snapshot(
             hml=hml,
         )
         data_point = len(model_y)
-        row = {
+        period_row = {
             "fund_code": fund_code,
-            "style": "Insufficient Data",
-            "alpha": np.nan,
             "data_point": data_point,
+            "coe_alpha": np.nan,
             "coe_smb": np.nan,
             "coe_hml": np.nan,
             "p_value_smb": np.nan,
             "p_value_hml": np.nan,
+            "legacy_order": legacy_order,
         }
-        if data_point < min_observations:
-            snapshot_rows.append(row)
-            continue
-        try:
-            coefficients, p_values = ols_with_pvalues(model_y, model_x)
-        except np.linalg.LinAlgError:
-            snapshot_rows.append(row)
-            continue
+        sharpe_row = {
+            "fund_code": fund_code,
+            "record_52": 0,
+            "reg_count": 1,
+            "alpha_sr_sig": np.nan,
+            "rmrf_sr_sig": np.nan,
+            "smb_sr_sig": np.nan,
+            "hml_sr_sig": np.nan,
+            "alpha_SR": np.nan,
+            "rmrf_SR": np.nan,
+            "smb_SR": np.nan,
+            "hml_SR": np.nan,
+            "alpha_mean": np.nan,
+            "alpha_sd": np.nan,
+            "rmrf_mean": np.nan,
+            "rmrf_sd": np.nan,
+            "smb_mean": np.nan,
+            "smb_sd": np.nan,
+            "hml_mean": np.nan,
+            "hml_sd": np.nan,
+            "legacy_order": legacy_order,
+        }
 
-        row.update(
+        if data_point > 3:
+            try:
+                coefficients, p_values = ols_with_pvalues(model_y, model_x)
+            except np.linalg.LinAlgError:
+                coefficients = np.full(4, np.nan)
+                p_values = np.full(4, np.nan)
+            period_row.update(
+                {
+                    "coe_alpha": coefficients[0],
+                    "coe_smb": coefficients[2],
+                    "coe_hml": coefficients[3],
+                    "p_value_smb": p_values[2],
+                    "p_value_hml": p_values[3],
+                }
+            )
+
+        if data_point >= ROLLING_STABILITY_START:
+            coeff_matrix: np.ndarray | None = None
+            contiguous_history = len(valid_positions) > 0 and np.all(np.diff(valid_positions) == 1)
+            if contiguous_history:
+                window_start = int(valid_positions[0])
+                window_count = data_point + 1 - ROLLING_WINDOW
+                relevant_matrices = np.asarray(
+                    rolling_window_matrices[window_start : window_start + window_count],
+                    dtype=float,
+                )
+                y_windows = np.lib.stride_tricks.sliding_window_view(model_y, ROLLING_WINDOW)
+                coeff_matrix = np.einsum("wij,wj->wi", relevant_matrices, y_windows, optimize=True)
+            else:
+                rolling_coefficients: List[np.ndarray] = []
+                for start_index in range(data_point + 1 - ROLLING_WINDOW):
+                    end_index = start_index + ROLLING_WINDOW
+                    try:
+                        coefficients, _ = ols_with_pvalues(model_y[start_index:end_index], model_x[start_index:end_index])
+                    except np.linalg.LinAlgError:
+                        continue
+                    rolling_coefficients.append(coefficients)
+                if rolling_coefficients:
+                    coeff_matrix = np.vstack(rolling_coefficients)
+
+            if coeff_matrix is not None and len(coeff_matrix) > 0:
+                alpha_mean, alpha_sd, alpha_sr = calc_mean_sd_sharpe(coeff_matrix[:, 0])
+                rmrf_mean, rmrf_sd, rmrf_sr = calc_mean_sd_sharpe(coeff_matrix[:, 1])
+                smb_mean, smb_sd, smb_sr = calc_mean_sd_sharpe(coeff_matrix[:, 2])
+                hml_mean, hml_sd, hml_sr = calc_mean_sd_sharpe(coeff_matrix[:, 3])
+
+                sharpe_row.update(
+                    {
+                        "record_52": data_point,
+                        "reg_count": len(coeff_matrix),
+                        "alpha_SR": alpha_sr,
+                        "rmrf_SR": rmrf_sr,
+                        "smb_SR": smb_sr,
+                        "hml_SR": hml_sr,
+                        "alpha_mean": alpha_mean,
+                        "alpha_sd": alpha_sd,
+                        "rmrf_mean": rmrf_mean,
+                        "rmrf_sd": rmrf_sd,
+                        "smb_mean": smb_mean,
+                        "smb_sd": smb_sd,
+                        "hml_mean": hml_mean,
+                        "hml_sd": hml_sd,
+                    }
+                )
+
+        period_rows.append(period_row)
+        sharpe_rows.append(sharpe_row)
+
+    sharpe_lookup = {row["fund_code"]: row for row in sharpe_rows}
+
+    snapshot_rows: List[Dict[str, object]] = []
+    for period_row in period_rows:
+        fund_code = str(period_row["fund_code"])
+        sharpe_row = sharpe_lookup[fund_code]
+        data_point = int(period_row["data_point"])
+        if classification_mode == "scheduled_rolling":
+            style = classify_style_scheduled_rolling(period_row, sharpe_row)
+        elif classification_mode == "simple_significance":
+            style = classify_style_simple_significance(period_row, simple_min_observations)
+        else:
+            raise ValueError(f"Unsupported classification mode: {classification_mode}")
+
+        snapshot_rows.append(
             {
-                "alpha": coefficients[0],
-                "coe_smb": coefficients[2],
-                "coe_hml": coefficients[3],
-                "p_value_smb": p_values[2],
-                "p_value_hml": p_values[3],
+                "fund_code": fund_code,
+                "style": style,
+                "alpha": period_row["coe_alpha"],
+                "data_point": data_point,
+                "coe_smb": period_row["coe_smb"],
+                "coe_hml": period_row["coe_hml"],
+                "p_value_smb": period_row["p_value_smb"],
+                "p_value_hml": period_row["p_value_hml"],
+                "smb_SR": sharpe_row["smb_SR"],
+                "hml_SR": sharpe_row["hml_SR"],
+                "record_52": sharpe_row["record_52"],
+                "reg_count": sharpe_row["reg_count"],
             }
         )
-        if math.isfinite(p_values[2]) and math.isfinite(p_values[3]) and p_values[2] < 0.05 and p_values[3] < 0.05:
-            row["style"] = classify_style(coefficients[2], coefficients[3])
-        else:
-            row["style"] = "Alpha"
-        snapshot_rows.append(row)
 
     snapshot = pd.DataFrame(snapshot_rows)
     snapshot = snapshot.sort_values(["style", "alpha"], ascending=[True, False], na_position="last").reset_index(drop=True)
@@ -336,10 +511,11 @@ def run_backtest(
     start_date: date | None,
     end_date: date | None,
     history_weeks: int,
-    min_observations: int,
     long_quantile: float,
     short_quantile: float,
     include_alpha_bucket: bool,
+    classification_mode: str,
+    simple_min_observations: int,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     factor_rows = build_factor_returns(quarter_dir)
     rf_by_date = load_rf_series(quarter_dir)
@@ -380,7 +556,8 @@ def run_backtest(
             nav_dates=nav_dates,
             nav_frame=nav_frame,
             history_weeks=history_weeks,
-            min_observations=min_observations,
+            classification_mode=classification_mode,
+            simple_min_observations=simple_min_observations,
         )
         holdings = select_portfolio_holdings(
             snapshot=snapshot,
@@ -577,10 +754,11 @@ def main() -> int:
         start_date=start_date,
         end_date=end_date,
         history_weeks=args.history_weeks,
-        min_observations=args.min_observations,
         long_quantile=args.long_quantile,
         short_quantile=args.short_quantile,
         include_alpha_bucket=not args.exclude_alpha_bucket,
+        classification_mode=args.classification_mode,
+        simple_min_observations=args.simple_min_observations,
     )
 
     metrics = compute_metrics(backtest)

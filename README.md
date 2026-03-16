@@ -44,13 +44,35 @@ Inputs:
 - mutual-fund-level NAV data to estimate each fund's alpha and style
 - a risk-free-rate series from `Rf.xlsx`
 
-For the backtest script, the monthly snapshot uses a practical, lightweight classification rule:
+By default, the backtest script uses a rolling-stability classification rule with an explicit observation schedule:
 
-- if both `SMB` and `HML` loadings are statistically significant, classify the fund by the sign of those coefficients
-- otherwise classify the fund as `Alpha`
-- require at least `52` weekly observations by default
+- run a full-sample regression up to the signal date
+- run rolling `52`-week regressions on the same trailing history
+- compute rolling-stability indicators such as `SMB_SR` and `HML_SR`
+- classify funds with a three-stage rule:
 
-This keeps the monthly backtest tractable while staying close to the logic of the broader research pipeline.
+  - `data_point < 52`: `Insufficient Data`
+  - `52 <= data_point <= 65`: use the full-sample regression fallback
+  - `data_point > 65`: use rolling-stability classification
+In practice:
+
+- if `52 <= data_point <= 65` and both `SMB` and `HML` are significant at the `5%` level, the fund is classified by the signs of `coe_smb` and `coe_hml`
+- otherwise it is classified as `Alpha`
+- if `data_point > 65`, the fund is classified by the signs of `SMB_SR` and `HML_SR` only when both absolute stability ratios are greater than `1`
+- otherwise it is classified as `Alpha`
+
+When you want the older, lighter classification rule, run the script with:
+
+```bash
+--classification-mode simple_significance
+```
+
+That optional mode uses a simpler two-step rule:
+
+- `data_point < min_observations`: `Insufficient Data`
+- `data_point >= min_observations`: classify by the signs of `coe_smb` and `coe_hml` only when both `p_value_smb < 0.05` and `p_value_hml < 0.05`; otherwise classify as `Alpha`
+
+The default `min_observations` for the simple rule is `52`, and it can be changed with `--simple-min-observations`.
 
 ### 2. Portfolio construction
 
@@ -113,21 +135,23 @@ python style_alpha_long_short_strategy.py \
   --quarter-dir "data_input/2017Q1" \
   --hs300-path "akshare_index_data/sh000300.csv" \
   --treasury-path "akshare_index_data/sh000012.csv" \
-  --output-dir "strategy_backtest_output/full_run_no_lookahead"
+  --output-dir "strategy_backtest_output/full_run_no_lookahead_prodclass"
 ```
 
 Key options:
 
 - `--history-weeks`
   Rolling lookback window used for factor regression. Default: `448`
-- `--min-observations`
-  Minimum weekly observations required to enter a style bucket. Default: `52`
 - `--long-quantile`
   Fraction held long within each style bucket. Default: `0.10`
 - `--short-quantile`
   Fraction held short within each style bucket. Default: `0.10`
 - `--exclude-alpha-bucket`
   Exclude the `Alpha` bucket from portfolio construction
+- `--classification-mode`
+  Choose between the default `scheduled_rolling` rule and the lighter `simple_significance` rule
+- `--simple-min-observations`
+  Minimum history required by `simple_significance`. Default: `52`
 
 ## Outputs
 
@@ -147,7 +171,40 @@ The backtest output includes both signal timing and execution timing:
 
 ## Example Results
 
-Using the bundled sample data and the no-lookahead execution rule, the current example run produced:
+Using the bundled sample data and the no-lookahead execution rule, the repository currently includes two full backtest variants.
+
+### Default: scheduled_rolling
+
+This is the default mode in the script and uses the `<52 / 52-65 / >65` rolling-stability schedule described above.
+
+- Strategy Ann. Return: `4.36%`
+- Benchmark Ann. Return: `0.96%`
+- Strategy Volatility: `5.97%`
+- Benchmark Volatility: `21.80%`
+- Strategy Sharpe: `0.74`
+- Benchmark Sharpe: `0.15`
+- Strategy Max Drawdown: `-12.33%`
+- Benchmark Max Drawdown: `-35.16%`
+- Monthly Hit Rate: `50.55%`
+- Rebalance Months: `91`
+
+Source:
+
+- [`strategy_backtest_output/full_run_no_lookahead_prodclass/performance_metrics.json`](strategy_backtest_output/full_run_no_lookahead_prodclass/performance_metrics.json)
+
+Backtest chart:
+
+![Style-Alpha Long/Short Backtest](strategy_backtest_output/full_run_no_lookahead_prodclass/style_alpha_long_short_backtest.png)
+
+### Alternative: simple_significance
+
+This optional mode uses the lighter full-sample significance rule:
+
+```bash
+python style_alpha_long_short_strategy.py \
+  --classification-mode simple_significance \
+  --output-dir "strategy_backtest_output/full_run_no_lookahead_simple"
+```
 
 - Strategy Ann. Return: `4.48%`
 - Benchmark Ann. Return: `0.96%`
@@ -160,13 +217,32 @@ Using the bundled sample data and the no-lookahead execution rule, the current e
 - Monthly Hit Rate: `52.75%`
 - Rebalance Months: `91`
 
-These numbers come from:
+Source:
 
-- [`strategy_backtest_output/full_run_no_lookahead/performance_metrics.json`](strategy_backtest_output/full_run_no_lookahead/performance_metrics.json)
+- [`strategy_backtest_output/full_run_no_lookahead_simple/performance_metrics.json`](strategy_backtest_output/full_run_no_lookahead_simple/performance_metrics.json)
 
 Backtest chart:
 
-![Style-Alpha Long/Short Backtest](strategy_backtest_output/full_run_no_lookahead/style_alpha_long_short_backtest.png)
+![Style-Alpha Long/Short Backtest - Simple Significance](strategy_backtest_output/full_run_no_lookahead_simple/style_alpha_long_short_backtest.png)
+
+### Why does the default rolling rule underperform the simple rule in this sample?
+
+In this sample, the more structured rolling-stability rule does not improve returns. The annual return drops from `4.48%` to `4.36%`, and the main reason is that the short book becomes less effective after the stricter style filter reshuffles bucket membership.
+
+- Average monthly long return: `0.98%` in `simple_significance` versus `1.11%` in `scheduled_rolling`
+- Average monthly short return: `-0.60%` in `simple_significance` versus `-0.74%` in `scheduled_rolling`
+- Average active style buckets: `3.70` in `simple_significance` versus `3.86` in `scheduled_rolling`
+- Alpha-bucket share of holdings: `53.3%` in `simple_significance` versus `69.6%` in `scheduled_rolling`
+
+So the default rolling rule helps the long side a bit, but it weakens the short side more than it helps the long side. Month by month the comparison is mixed, but in this run the stricter classifier also raises volatility and drawdown.
+
+Possible optimization ideas:
+
+- Tune the rolling-stability cutoffs instead of fixing them at `abs(SMB_SR) > 1` and `abs(HML_SR) > 1`
+- Revisit the transition zone between `52` and `65` observations
+- Exclude the `Alpha` bucket from portfolio construction, or cap its weight
+- Use different long/short quantiles by style bucket instead of a uniform `10% / 10%`
+- Add turnover controls or smoothing so style labels do not change too abruptly across months
 
 ## Important Caveats
 
@@ -176,7 +252,8 @@ Important limitations:
 
 - The bundled backtest uses a static example fund universe from the sample quarter snapshot, so survivorship and universe-selection bias may still exist.
 - Fund NAV data is weekly, so monthly rebalancing is approximated with the next available weekly NAV date.
-- The monthly strategy snapshot is simpler than the full production classification workflow; it uses significance-based style assignment instead of the full rolling-stability classification used elsewhere in the repo.
+- The monthly strategy snapshot uses a custom rolling-stability rule for backtesting: `<52` observations is treated as insufficient history, `52-65` observations uses a full-sample significance fallback, and only histories above `65` observations enter the rolling-stability classification step.
+- The script also supports an optional simpler style classifier via `--classification-mode simple_significance`, but the example results shown here use the default rolling-stability schedule.
 - Transaction costs, subscriptions/redemptions, liquidity constraints, and fund dealing cutoffs are not modeled.
 
 ## Related Documents
