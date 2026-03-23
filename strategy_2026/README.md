@@ -249,6 +249,22 @@ Important limitations:
 - Transaction costs, subscriptions/redemptions, fund dealing cutoffs, and liquidity constraints are not modeled.
 - Parameter-search results can be regime-sensitive, so strong short-sample runs should be treated cautiously.
 
+## Next Steps / Further Research
+
+Several extensions are natural from here.
+
+1. Address survivorship bias more directly.
+   The cleanest next step would be to rebuild the historical fund universe from a point-in-time data source such as Wind, then rerun the daily strategy on that broader historical universe and compare the results with the current active-fund sample.
+2. Study the regime-change question more formally.
+   Current results are suggestive, but not yet a formal regime model. A useful next step would be to test whether regime changes can be identified in real time using observable signals, such as market volatility, style-factor leadership, cross-sectional breadth, or fund-universe maturity, and then condition the strategy parameters on those signals rather than using one fixed parameter set for the full sample.
+3. Test whether the framework generalizes beyond China.
+   A natural extension would be to port the same workflow to the US mutual-fund universe, for example using the CRSP Mutual Fund Database, and study whether the same style-alpha ranking logic works in a different market structure and fund ecosystem.
+4. Add implementation frictions.
+   The current backtest is useful as a research baseline, but a more realistic production test should incorporate turnover, subscription/redemption frictions, and trading-cost assumptions.
+5. Test robustness to alternative universe and benchmark definitions.
+   This includes checking whether the results remain stable under alternative stock-holding thresholds, benchmark choices, or stricter point-in-time fund filters, rather than relying on one preferred specification alone.
+
+
 ## Related Files
 
 - [style_alpha_long_short_strategy_2026.py](style_alpha_long_short_strategy_2026.py)

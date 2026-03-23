@@ -1,0 +1,14 @@
+{
+  "Strategy Ann. Return": "5.57%",
+  "Benchmark Ann. Return": "4.90%",
+  "Strategy Volatility": "5.20%",
+  "Benchmark Volatility": "15.56%",
+  "Strategy Sharpe": "1.07",
+  "Benchmark Sharpe": "0.38",
+  "Information Ratio": "-0.03",
+  "Strategy Max Drawdown": "-6.02%",
+  "Benchmark Max Drawdown": "-32.02%",
+  "Average Monthly Excess": "-0.03%",
+  "Monthly Hit Rate": "53.78%",
+  "Rebalance Months": "119"
+}

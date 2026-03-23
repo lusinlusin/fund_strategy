@@ -40,7 +40,7 @@ Current reference daily run:
 
 Source:
 
-- [`strategy_2026/backtest_output_speedup_nnn_s2016_2025_h70_q10_a0_rw245_fb320/performance_metrics_speedup.json`](strategy_2026/backtest_output_speedup_nnn_s2016_2025_h70_q10_a0_rw245_fb320/performance_metrics_speedup.json)
+- [`strategy_2026/backtest_output/performance_metrics_speedup.json`](strategy_2026/backtest_output_speedup_nnn_s2016_2025_h70_q10_a0_rw245_fb320/performance_metrics_speedup.json)
 
 Backtest chart:
 

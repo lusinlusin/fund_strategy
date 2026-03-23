@@ -318,12 +318,12 @@ To understand how restrictive a stock-holding filter might be, we first review t
 
 #### Distribution histograms
 
-<img src="data/graphs/stock_holding_distribution_2002_2005.png" width="450">
-<img src="data/graphs/stock_holding_distribution_2006_2009.png" width="450">
-<img src="data/graphs/stock_holding_distribution_2010_2013.png" width="450">
-<img src="data/graphs/stock_holding_distribution_2014_2017.png" width="450">
-<img src="data/graphs/stock_holding_distribution_2018_2021.png" width="450">
-<img src="data/graphs/stock_holding_distribution_2022_2025.png" width="450">
+<img src="data/graphs/stock_holding_distribution_2002_2005.png" width="400">
+<img src="data/graphs/stock_holding_distribution_2006_2009.png" width="400">
+<img src="data/graphs/stock_holding_distribution_2010_2013.png" width="400">
+<img src="data/graphs/stock_holding_distribution_2014_2017.png" width="400">
+<img src="data/graphs/stock_holding_distribution_2018_2021.png" width="400">
+<img src="data/graphs/stock_holding_distribution_2022_2025.png" width="400">
 
 Initial takeaways:
 
@@ -332,6 +332,107 @@ Initial takeaways:
 - in recent years, a large share of observations falls into the `80-90%` and `90-100%` buckets
 - this suggests that a `60%` ~ `70%` stock-holding threshold is workable, but it should still be treated as a research choice rather than a fixed truth
 
+
+## Step 2. Build the daily regression panel
+
+This step turns the raw daily inputs into a clean fund-by-date panel for factor regression.
+
+The first objective is to define a usable active-equity universe. In practice this means removing duplicate `C/E` share classes, aligning `holding` to the same surviving fund list, and then applying a point-in-time stock-holding filter. The holding screen is meant to keep the sample focused on genuinely equity-oriented funds rather than broad mixed-fund labels alone. In different runs this threshold may be set at `60%`, `65%`, or `70%`, but the logic is the same: use the latest disclosed stock holding available as of the signal date and retain only funds above the chosen threshold.
+
+The second objective is to transform filtered `累计净值` into daily returns and align those returns with the daily CH3 factor set. NAV is reshaped from wide to long format, daily fund return is computed within each fund, and the panel is merged with `rf_dly`, `mktrf`, `SMB`, and `VMG`. The left-hand-side regression variable is then defined as `excess_return = fund_return - rf_dly`.
+
+Output:
+
+- a long-format daily regression panel
+- one row per `fund_code x date`
+- core fields:
+  - `fund_return`
+  - `excess_return`
+  - `mktrf`
+  - `SMB`
+  - `VMG`
+
+## Step 3. Rolling regression and style classification
+
+This step estimates each fund's style exposure and alpha, then converts the continuous regression output into discrete style buckets.
+
+The baseline regression is:
+
+`excess_return ~ mktrf + SMB + VMG`
+
+The classification rule is deliberately tiered so that short-history funds are not over-interpreted. Funds with too little data are labeled `Insufficient Data`. Funds with only a moderate history use a full-sample fallback: if both `SMB` and `VMG` are significant, style is assigned by the signs of the estimated coefficients; otherwise the fund remains in `Alpha`. Funds with longer histories move to rolling estimation, where style is assigned only if both rolling stability ratios are strong enough in absolute value. This is meant to avoid forcing unstable daily estimates into hard style buckets.
+
+The final style map is:
+
+- `Large Growth`
+- `Large Value`
+- `Small Growth`
+- `Small Value`
+- `Alpha`
+
+Output:
+
+- a cross-sectional monthly snapshot of:
+  - alpha
+  - factor coefficients
+  - significance
+  - rolling stability summaries
+  - final style classification
+
+## Step 4. Monthly long-short backtest
+
+This step converts the monthly style snapshot into a no-lookahead trading strategy.
+
+Signals are formed at month-end, but execution is pushed to the next available daily NAV date. At each rebalance, the strategy uses only the information available up to that signal date: the latest disclosed stock holding, the regression panel up to that month-end, and the style classification produced from those data only. Funds are then split into style buckets, ranked within each bucket by estimated alpha, and traded as a bucket-neutral long-short portfolio. The long leg buys the top quantile within each active style bucket; the short leg shorts the bottom quantile. Bucket weights are equal across active buckets, and weights are equal within each side of each bucket.
+
+Monthly realized return is then measured from one execution date to the next. The benchmark is computed over the same holding window, using the research benchmark defined in the script.
+
+Output:
+
+- monthly backtest return series
+- monthly holdings detail
+- cumulative strategy and benchmark curves
+- summary performance metrics
+
+## Computational Efficiency
+
+The original research script prioritized transparency over speed. That was useful for debugging, but too slow for repeated backtests and parameter search.
+
+The main bottleneck in the original research script was repeated rolling OLS estimation. In the `2008-2017` study window, a representative monthly backtest involved roughly:
+
+- about `980` eligible funds per rebalance
+- about `2,200` daily observations per fund
+- a `245`-day rolling window
+- about `104` monthly rebalances
+
+Under the original month-by-month rebuild, this implies roughly:
+
+- rolling OLS fits:
+  - `980 x (2200 - 245 + 1) x 104 ~= 199 million`
+- plus about `100 thousand` full-sample OLS fits
+
+The optimized path keeps the same no-lookahead logic while reducing repeated work. The main production script [strategy_2026.py](strategy_2026.py) precomputes the full daily panel and reusable regression snapshots once, then slices them by signal date during backtesting. For example, if the precompute universe is restricted to the roughly `1,622` funds already established by `2017-03-31`, the rolling-estimation burden falls to approximately:
+
+- rolling OLS fits:
+  - `1622 x (2200 - 245 + 1) ~= 3.17 million`
+
+In other words, the main rolling-regression workload falls by roughly `60x`, because each fund-window is estimated once and then reused across monthly signal dates.
+
+
+
+## Regime-Change Hypothesis
+
+Current results suggest that `2014` is a transition period, `2015` is the most defensible regime-change candidate, and `2016` looks like the point at which the new regime is fully established.
+
+The case for `2015` is both economic and empirical:
+
+1. `2014-2015` marks a major A-share market-structure break, with sharp changes in style leadership and cross-sectional dispersion.
+2. the active-equity fund universe becomes more mature around this period, with broader coverage, fuller style buckets, and more stable within-bucket ranking capacity.
+3. the daily classification framework becomes more credible once more funds have enough continuous history for `245`-day rolling estimation.
+4. the parameter-search results line up with this interpretation:
+   `2015-01-01` already dominates earlier natural-year starts, while `2016-01-01` is stronger but shorter.
+
+This should be treated as a working hypothesis rather than proof of a causal break.
 
 ## Parameter Search
 
@@ -359,15 +460,24 @@ The main parameters searched so far are:
 
 This design was used because start date had the largest first-order impact in the early tests, while the other parameters were better treated as conditional refinements around the best start-date region.
 
+To make this search feasible, [strategy_2026_parameter_search.py](strategy_2026_parameter_search.py) adds caching on top of the optimized backtest workflow. Repeated searches over holding thresholds, quantiles, and classification thresholds therefore do not rebuild the full backtest state from scratch. Search output is also reduced to the minimum needed for comparison, primarily `performance_metrics_speedup.json` and a consolidated `search_summary.csv`.
+
 ### Main results
 
 The searches point to three broad conclusions.
 
-1. The strongest natural-year start region is `2015-2016`, not the earlier `2008-2012` sample.
+1. `2015/2016-2025` clearly outperforms the earlier `2008-2012` start region under the same search framework, which is consistent with a regime-change interpretation rather than the idea that one fixed parameter set should work equally well over the full sample.
 2. `BACKTEST_INCLUDE_ALPHA_BUCKET = False` is consistently better than including the `Alpha` bucket.
+   In this framework, `Alpha` is not a clean style bucket but a residual group of funds whose style exposure is either weak, unstable, or not significant enough to be classified into the four main style buckets. That makes the bucket more heterogeneous and noisier than `Large/Small x Value/Growth`, so alpha ranking within `Alpha` is less reliable in the daily setting. Excluding the `Alpha` bucket therefore tends to improve the quality of bucket-level ranking rather than simply shrinking the investable universe.
 3. A moderate stock-holding threshold and a relatively strict rolling-stability rule work best in the daily setting.
+   The stock-holding threshold reflects a tradeoff between style purity and cross-sectional breadth. If the threshold is too low, the sample admits funds with weaker or more mixed equity-style exposure, which makes factor-based style ranking noisier. If the threshold is too high, the candidate pool becomes too small and the bucket-level diversification benefit weakens. The rolling-stability threshold follows the same logic: if set too low, unstable or quasi-`Alpha` funds are forced into style buckets; if set too high, the buckets become too thin. The search results suggest that daily classification works best in the middle of that tradeoff rather than at either extreme.
 
-The strongest tuned natural-year run found so far is:
+Taken together, the searches do not point to a single isolated optimum. Instead, they converge to a fairly stable post-2015 natural-year parameter region. Two configurations are therefore worth separating:
+
+1. a tuned search reference, which is slightly stronger on score and drawdown
+2. a simpler public-facing reference, which uses more conventional quantile and holding-threshold choices
+
+Tuned search reference:
 
 - `BACKTEST_START_DATE = 2016-01-01`
 - `BACKTEST_END_DATE = 2025-12-31`
@@ -390,7 +500,7 @@ Metrics:
 - Strategy Max Drawdown: `-4.31%`
 - Rebalance Months: `107`
 
-For presentation purposes, a slightly simpler and more natural quantile choice also performs well:
+Public reference run used in the README:
 
 - `BACKTEST_START_DATE = 2016-01-01`
 - `BACKTEST_END_DATE = 2025-12-31`
@@ -412,38 +522,35 @@ Metrics:
 - Strategy Max Drawdown: `-5.39%`
 - Rebalance Months: `107`
 
-Finally, a shorter-sample search over `2020-2025` produces even stronger performance, which is consistent with the idea that the strategy may be regime-sensitive rather than globally stable over the full history.
+The README uses the second configuration not because it is uniquely optimal, but because it sits in the same strong post-2015 parameter region while using more conventional and easier-to-defend choices such as `10%` bucket selection.
 
+Finally, a shorter-sample search over `2020-2025` produces even stronger performance, which is consistent with the idea that the strategy may be regime-sensitive rather than globally stable over the full history. The best tuned `2020-2025` search result uses:
 
-## Next Steps
+- `BACKTEST_START_DATE = 2020-01-01`
+- `BACKTEST_END_DATE = 2025-12-31`
+- `BACKTEST_MIN_STOCK_HOLDING = 65`
+- `BACKTEST_LONG_QUANTILE = 0.10`
+- `BACKTEST_SHORT_QUANTILE = 0.10`
+- `BACKTEST_INCLUDE_ALPHA_BUCKET = False`
+- `ROLLING_WINDOW = 245`
+- `FULL_SAMPLE_FALLBACK_MAX = 320`
+- `P_VALUE_THRESHOLD = 0.05`
+- `SMB_STABILITY_THRESHOLD = 1.5`
+- `VMG_STABILITY_THRESHOLD = 1.5`
 
-Completed so far:
+Metrics:
 
-1. built the daily regression panel from `累计净值`, `stock_holding`, and `CH3` factors
-2. estimated rolling style exposure and alpha with a three-stage classification rule
-3. implemented monthly no-lookahead rebalancing and bucket-level alpha ranking
-4. ran the first daily backtests and a parameter search over start date, stock-holding threshold, quantile, and classification thresholds
+- Strategy Ann. Return: `9.13%`
+- Benchmark Ann. Return: `-1.49%`
+- Strategy Sharpe: `1.27`
+- Information Ratio: `0.53`
+- Strategy Max Drawdown: `-5.55%`
+- Rebalance Months: `59`
+- Source: [performance_metrics_speedup.json](C:/Users/Ng/Desktop/LLM/fund_strategy/strategy_2026/parameter_search_output/047_s2020_2025_h65_q10_a0_rw245_fb320/performance_metrics_speedup.json)
 
-Current focus:
+A nearby public run with `BACKTEST_MIN_STOCK_HOLDING = 70` produces a very similar path and has a saved chart:
 
-1. refine the best natural-year parameter region
-2. determine whether the post-2015 improvement reflects a genuine regime change or simply a more mature sample
-3. test regime-dependent parameter sets using point-in-time regime definitions
-
-
-## Regime-Change Hypothesis
-
-Current results suggest that `2014` is a transition period, `2015` is the most defensible regime-change candidate, and `2016` looks like the point at which the new regime is fully established.
-
-The case for `2015` is both economic and empirical:
-
-1. `2014-2015` marks a major A-share market-structure break, with sharp changes in style leadership and cross-sectional dispersion.
-2. the active-equity fund universe becomes more mature around this period, with broader coverage, fuller style buckets, and more stable within-bucket ranking capacity.
-3. the daily classification framework becomes more credible once more funds have enough continuous history for `245`-day rolling estimation.
-4. the parameter-search results line up with this interpretation:
-   `2015-01-01` already dominates earlier natural-year starts, while `2016-01-01` is stronger but shorter.
-
-This should be treated as a working hypothesis rather than proof of a causal break.
+<img src="backtest_output_speedup_nnn_s2020_2025_h70_q10_a0_rw245_fb320/style_alpha_long_short_backtest_speedup.png" width="700">
 
 
 ## Caveat
@@ -451,3 +558,18 @@ This should be treated as a working hypothesis rather than proof of a causal bre
 The fund universe is currently limited to funds that are still active in the source list, which may introduce survivorship bias and overestimate strategy returns.
 
 A more rigorous solution would be to rebuild the historical fund universe with point-in-time fund metadata, including both active and terminated funds, and then apply `found_date` and `delist_date` filters at each research date.
+
+## Next Steps / Further Research
+
+Several extensions are natural from here.
+
+1. Address survivorship bias more directly.
+   The cleanest next step would be to rebuild the historical fund universe from a point-in-time data source such as Wind, then rerun the daily strategy on that broader historical universe and compare the results with the current active-fund sample.
+2. Study the regime-change question more formally.
+   Current results are suggestive, but not yet a formal regime model. A useful next step would be to test whether regime changes can be identified in real time using observable signals, such as market volatility, style-factor leadership, cross-sectional breadth, or fund-universe maturity, and then condition the strategy parameters on those signals rather than using one fixed parameter set for the full sample.
+3. Test whether the framework generalizes beyond China.
+   A natural extension would be to port the same workflow to the US mutual-fund universe, for example using the CRSP Mutual Fund Database, and study whether the same style-alpha ranking logic works in a different market structure and fund ecosystem.
+4. Add implementation frictions.
+   The current backtest is useful as a research baseline, but a more realistic production test should incorporate turnover, subscription/redemption frictions, and trading-cost assumptions.
+5. Test robustness to alternative universe and benchmark definitions.
+   This includes checking whether the results remain stable under alternative stock-holding thresholds, benchmark choices, or stricter point-in-time fund filters, rather than relying on one preferred specification alone.
