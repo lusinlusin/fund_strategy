@@ -1,5 +1,15 @@
-/fetch_yahoo_indices.py
-/Fund selection.docx
-/~$nd selection.docx
-/yahoo_index_data/
-/strategy_backtest_output/full_run/
+
+/strategy_2017/data_input/2017Q1/2017Q1_948主动偏股基金风格划分.xlsx
+/strategy_2017/data_input/2017Q1/2017Q1_948主动偏股基金风格划分_v3.xlsx
+/strategy_2017/data_input/2017Q1/20170606主动偏股划分.xlsx
+/strategy_2017/pipeline_output/
+/strategy_2017/akshare_index_data/
+/strategy_2017/Fund selection.docx
+/strategy_2017/strategy_backtest_output/full_run/
+/data/
+/strategy_2017/strategy_backtest_output/full_run_no_lookahead_prodclass_v1/
+/strategy_2017/strategy_backtest_output/full_run_no_lookahead_simple_v1/
+/strategy_2017/REBALANCE_WORKFLOW.md
+/strategy_2017/STRATEGY_README.md
+/strategy_2026/strategy_2026_v1.py
+/strategy_2026/style_alpha_long_short_strategy_2026.py
