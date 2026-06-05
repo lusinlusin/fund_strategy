@@ -1,0 +1,22 @@
+{
+  "Strategy Ann. Return": "10.07%",
+  "Benchmark (EW) Ann. Return": "10.10%",
+  "Benchmark (VW) Ann. Return": "10.32%",
+  "Strategy Volatility": "15.67%",
+  "Benchmark (EW) Volatility": "15.35%",
+  "Benchmark (VW) Volatility": "15.32%",
+  "Strategy Sharpe": "0.69",
+  "Benchmark (EW) Sharpe": "0.71",
+  "Benchmark (VW) Sharpe": "0.72",
+  "Information Ratio (vs EW)": "0.01",
+  "Information Ratio (vs VW)": "-0.05",
+  "Strategy Max Drawdown": "-51.25%",
+  "Benchmark (EW) Max Drawdown": "-51.30%",
+  "Benchmark (VW) Max Drawdown": "-52.53%",
+  "Average Monthly Excess (vs EW)": "0.00%",
+  "Average Monthly Excess (vs VW)": "-0.01%",
+  "Monthly Hit Rate (vs EW)": "52.14%",
+  "Monthly Hit Rate (vs VW)": "49.29%",
+  "Return Months": "420",
+  "Rebalance Years": "35"
+}

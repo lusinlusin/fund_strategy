@@ -1,0 +1,141 @@
+Validating engine against run_backtest_monthly ...
+Model factors: ['mkt_rf', 'smb', 'hml'] | size axis=smb | value axis=hml
+Loading inputs...
+Loading inputs done | elapsed=0.0m
+Building precompute universe...
+Precompute universe size: 1926
+Precompute universe ready | elapsed=0.0m
+Building full monthly regression panel...
+Full panel rows: 283803
+Full monthly regression panel ready | elapsed=0.0m
+Precomputing monthly full-sample snapshots...
+Monthly full-sample snapshots ready | elapsed=0.0m
+Precomputing monthly rolling-stability snapshots...
+Monthly rolling-stability snapshots ready | elapsed=0.0m
+Precomputing eligible funds by signal date...
+Eligible-fund snapshots ready | elapsed=0.0m
+
+Backtest metrics
+  Strategy Ann. Return     11.01%
+  Benchmark (EW) Ann. Return 11.06%
+  Benchmark (VW) Ann. Return 12.52%
+  Strategy Volatility      14.28%
+  Benchmark (EW) Volatility 15.00%
+  Benchmark (VW) Volatility 14.74%
+  Strategy Sharpe          0.81
+  Benchmark (EW) Sharpe    0.78
+  Benchmark (VW) Sharpe    0.88
+  Information Ratio (vs EW) -0.04
+  Information Ratio (vs VW) -0.45
+  Strategy Max Drawdown    -27.11%
+  Benchmark (EW) Max Drawdown -25.03%
+  Benchmark (VW) Max Drawdown -27.00%
+  Average Monthly Excess (vs EW) -0.01%
+  Average Monthly Excess (vs VW) -0.12%
+  Monthly Hit Rate (vs EW) 51.67%
+  Monthly Hit Rate (vs VW) 45.00%
+  Return Months            180
+  Rebalance Years          15
+Total elapsed=0.1m
+
+Saved outputs to /Users/allison/Documents/Portfolio/fund_strategy/strategy_2026_US/parameter_search_output/_validation
+  check ok=True | ann engine=11.01% ref=11.01%
+Model factors: ['mkt_rf', 'smb', 'hml', 'mom'] | size axis=smb | value axis=hml
+Loading inputs...
+Loading inputs done | elapsed=0.0m
+Building precompute universe...
+Precompute universe size: 1926
+Precompute universe ready | elapsed=0.0m
+Building full monthly regression panel...
+Full panel rows: 283803
+Full monthly regression panel ready | elapsed=0.0m
+Precomputing monthly full-sample snapshots...
+Monthly full-sample snapshots ready | elapsed=0.0m
+Precomputing monthly rolling-stability snapshots...
+Monthly rolling-stability snapshots ready | elapsed=0.0m
+Precomputing eligible funds by signal date...
+Eligible-fund snapshots ready | elapsed=0.0m
+
+Backtest metrics
+  Strategy Ann. Return     11.19%
+  Benchmark (EW) Ann. Return 11.56%
+  Benchmark (VW) Ann. Return 13.10%
+  Strategy Volatility      15.56%
+  Benchmark (EW) Volatility 16.01%
+  Benchmark (VW) Volatility 15.77%
+  Strategy Sharpe          0.76
+  Benchmark (EW) Sharpe    0.77
+  Benchmark (VW) Sharpe    0.86
+  Information Ratio (vs EW) -0.15
+  Information Ratio (vs VW) -0.66
+  Strategy Max Drawdown    -26.64%
+  Benchmark (EW) Max Drawdown -25.03%
+  Benchmark (VW) Max Drawdown -27.00%
+  Average Monthly Excess (vs EW) -0.03%
+  Average Monthly Excess (vs VW) -0.15%
+  Monthly Hit Rate (vs EW) 51.67%
+  Monthly Hit Rate (vs VW) 42.50%
+  Return Months            120
+  Rebalance Years          10
+Total elapsed=0.1m
+
+Saved outputs to /Users/allison/Documents/Portfolio/fund_strategy/strategy_2026_US/parameter_search_output/_validation
+  check ok=True | ann engine=11.19% ref=11.19%
+Validation PASSED
+
+Running grid: 31104 combinations
+  1000/31104 | elapsed=0.4m
+  2000/31104 | elapsed=0.7m
+  3000/31104 | elapsed=0.9m
+  4000/31104 | elapsed=1.1m
+  5000/31104 | elapsed=1.5m
+  6000/31104 | elapsed=1.8m
+  7000/31104 | elapsed=2.0m
+  8000/31104 | elapsed=2.2m
+  9000/31104 | elapsed=2.6m
+  10000/31104 | elapsed=2.9m
+  11000/31104 | elapsed=3.1m
+  12000/31104 | elapsed=3.3m
+  13000/31104 | elapsed=3.7m
+  14000/31104 | elapsed=4.0m
+  15000/31104 | elapsed=4.2m
+  16000/31104 | elapsed=4.5m
+  17000/31104 | elapsed=4.8m
+  18000/31104 | elapsed=5.1m
+  19000/31104 | elapsed=5.3m
+  20000/31104 | elapsed=5.6m
+  21000/31104 | elapsed=6.0m
+  22000/31104 | elapsed=6.2m
+  23000/31104 | elapsed=6.4m
+  24000/31104 | elapsed=6.8m
+  25000/31104 | elapsed=7.1m
+  26000/31104 | elapsed=7.4m
+  27000/31104 | elapsed=7.5m
+  28000/31104 | elapsed=7.9m
+  29000/31104 | elapsed=8.2m
+  30000/31104 | elapsed=8.5m
+  31000/31104 | elapsed=8.6m
+  31104/31104 | elapsed=8.6m
+
+Done: 31104/31104 completed in 8.7m
+Saved:
+  /Users/allison/Documents/Portfolio/fund_strategy/strategy_2026_US/parameter_search_output/grid_search_summary.csv
+  /Users/allison/Documents/Portfolio/fund_strategy/strategy_2026_US/parameter_search_output/grid_search_summary.xlsx
+
+Top 15 by score:
+ rank     score                  FACTOR_COLUMNS BACKTEST_START_DATE  ALPHA_TRAILING_WINDOW  BACKTEST_LONG_QUANTILE  SMB_STABILITY_THRESHOLD  HML_STABILITY_THRESHOLD  BACKTEST_MIN_STOCK_HOLDING  BACKTEST_INCLUDE_ALPHA_BUCKET Strategy Ann. Return Benchmark (EW) Ann. Return Benchmark (VW) Ann. Return Information Ratio (vs EW) Information Ratio (vs VW) Strategy Sharpe
+    1 11.628333           mkt_rf, smb, hml, mom          2015-01-01                  120.0                     0.2                      1.5                      1.5                          80                          False               13.74%                     11.58%                     13.19%                      0.67                      0.16            0.92
+    2 11.587500           mkt_rf, smb, hml, cma          2010-01-01                   60.0                     0.1                      1.5                      1.5                          80                          False               12.85%                     11.11%                     12.58%                      0.51                      0.07            0.90
+    3 11.480833           mkt_rf, smb, hml, cma          2015-01-01                   60.0                     0.3                      1.5                      1.5                          80                          False               13.47%                     11.58%                     13.19%                      0.61                      0.09            0.88
+    4 11.435833           mkt_rf, smb, hml, rmw          2015-01-01                   60.0                     0.3                      1.5                      1.5                          80                          False               13.55%                     11.58%                     13.19%                      0.74                      0.12            0.87
+    5 11.428333           mkt_rf, smb, hml, mom          2015-01-01                  120.0                     0.3                      1.5                      1.5                          80                          False               13.64%                     11.58%                     13.19%                      0.69                      0.12            0.91
+    6 11.360833                mkt_rf, smb, hml          2015-01-01                  120.0                     0.3                      1.5                      1.5                          80                          False               13.63%                     11.58%                     13.19%                      0.67                      0.12            0.91
+    7 11.235833           mkt_rf, smb, hml, cma          2015-01-01                   60.0                     0.1                      1.5                      1.5                          80                          False               13.26%                     11.58%                     13.19%                      0.44                      0.01            0.88
+    8 11.228333 mkt_rf, smb, hml, rmw, cma, mom          2015-01-01                  120.0                     0.1                      1.5                      2.0                          80                          False               13.58%                     11.58%                     13.19%                      0.65                      0.12            0.87
+    9 11.188333           mkt_rf, smb, hml, cma          2015-01-01                   60.0                     0.3                      1.5                      1.5                          70                          False               13.31%                     11.56%                     13.10%                      0.57                      0.07            0.87
+   10 11.188333           mkt_rf, smb, hml, cma          2015-01-01                   60.0                     0.3                      1.5                      1.5                          60                          False               13.31%                     11.56%                     13.10%                      0.57                      0.07            0.87
+   11 11.173333                mkt_rf, smb, hml          2015-01-01                    NaN                     0.3                      1.5                      1.5                          80                          False               13.63%                     11.58%                     13.19%                      0.70                      0.14            0.90
+   12 11.150833           mkt_rf, smb, hml, mom          2015-01-01                   36.0                     0.1                      1.5                      2.0                          80                          False               13.86%                     11.58%                     13.19%                      0.50                      0.14            0.92
+   13 11.140000           mkt_rf, smb, hml, cma          2010-01-01                   60.0                     0.3                      1.5                      1.5                          80                          False               12.70%                     11.11%                     12.58%                      0.57                      0.04            0.89
+   14 11.098333      mkt_rf, smb, hml, rmw, mom          2015-01-01                   36.0                     0.1                      2.0                      1.5                          80                          False               13.66%                     11.58%                     13.19%                      0.72                      0.13            0.87
+   15 11.085000           mkt_rf, smb, hml, cma          2010-01-01                   60.0                     0.2                      1.5                      1.5                          80                          False               12.78%                     11.11%                     12.58%                      0.57                      0.06            0.89
