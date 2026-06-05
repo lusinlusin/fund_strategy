@@ -1,11 +1,11 @@
-# Daily Style-Alpha Long/Short Fund Strategy (2026)
+# Daily Style-Alpha Fund Strategy (2026)
 
 [![Python](https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 ![Status](https://img.shields.io/badge/status-research-0A7D33)
 ![Backtest](https://img.shields.io/badge/backtest-no--lookahead-1f6feb)
 ![Market](https://img.shields.io/badge/market-China%20mutual%20funds-B31B1B)
 
-An alpha-ranking, style-balanced long/short strategy for the China active-equity mutual fund universe. It combines a factor-based style classification model with monthly cross-sectional alpha ranking, then trades with a no-lookahead execution rule that waits until the next available daily NAV date after each month-end signal.
+An alpha-ranking, style-balanced fund-selection strategy for the China active-equity mutual fund universe. It combines a factor-based style classification model with monthly cross-sectional alpha ranking, then trades with a no-lookahead execution rule that waits until the next available daily NAV date after each month-end signal.
 
 The strategy uses:
 
@@ -19,13 +19,22 @@ The strategy is:
 - classify funds into style buckets
 - rank funds within each bucket by estimated alpha
 - go long the top quantile in each active bucket
-- go short the bottom quantile in each active bucket
+- **(default) long-only** (`BACKTEST_SHORT_QUANTILE = 0`); optionally also short the bottom quantile for a dollar-neutral long/short
 - rebalance monthly
 
-The benchmark is:
+The benchmark (`BACKTEST_BENCHMARK`) can be either:
 
-- `80% * CSI 300 + 20% * SSE Treasury Index`
-- implemented as a daily-return series and chain-linked over each holding period
+- `equal_weight` *(default, headline)* — the **equal-weight average of the eligible fund universe**, the natural peer benchmark for a long-only fund-of-funds, chain-linked over each holding period
+- `80_20` — `80% * CSI 300 + 20% * SSE Treasury Index`, a market benchmark for the long/short mode
+
+> **Headline result (long-only vs equal-weight peers, 2016–2025).** The strategy returns
+> **12.24 %/yr vs 8.30 %** for the equal-weight peer average — an **information ratio of 0.74**
+> and a **57 % monthly hit rate**. Unlike the U.S. port ([`../strategy_2026_US`](../strategy_2026_US)),
+> where the same long-only construction merely matches the equal-weight peer and loses to a
+> value-weight peer, the China universe shows a **real, positive selection edge**. Note the
+> trade-off: long-only carries full market beta, so Sharpe is 0.66 (vol ≈ 20 %) rather than the
+> ~1.4 of the market-neutral long/short mode — the edge here is *beating the peer average*, not a
+> low-volatility spread.
 
 Path note:
 
@@ -71,7 +80,7 @@ For each month-end signal date:
 - split funds into style buckets:
   `Large Growth`, `Large Value`, `Small Growth`, `Small Value`, and optionally `Alpha`
 - rank funds within each bucket by estimated alpha
-- long the top quantile and short the bottom quantile
+- long the top quantile (and, if `BACKTEST_SHORT_QUANTILE > 0`, short the bottom quantile)
 - trade at the next available NAV date
 - hold until the next execution date, with the last portfolio marked to `BACKTEST_END_DATE`
 
@@ -147,8 +156,9 @@ The main script is configured through top-of-file parameters, including:
 - `BACKTEST_END_DATE`
 - `BACKTEST_MIN_STOCK_HOLDING`
 - `BACKTEST_LONG_QUANTILE`
-- `BACKTEST_SHORT_QUANTILE`
+- `BACKTEST_SHORT_QUANTILE` (`0` ⇒ long-only)
 - `BACKTEST_INCLUDE_ALPHA_BUCKET`
+- `BACKTEST_BENCHMARK` (`equal_weight` or `80_20`)
 - `ROLLING_WINDOW`
 - `FULL_SAMPLE_FALLBACK_MAX`
 - `P_VALUE_THRESHOLD`
@@ -172,7 +182,7 @@ The strategy script writes:
 - `monthly_backtest_speedup.csv`
 - `monthly_holdings_speedup.csv`
 - `performance_metrics_speedup.json`
-- `style_alpha_long_short_backtest_speedup.png`
+- `style_alpha_backtest_speedup.png`
 
 The parameter-search script writes:
 
@@ -194,46 +204,55 @@ In simple terms:
 For the full reasoning, data review, and parameter-search history, see:
 - [WORKFLOW.md](WORKFLOW.md)
 
+This is the **long-only vs equal-weight peer** configuration.
+
 Parameters:
 
 - `BACKTEST_START_DATE = 2016-01-01`
 - `BACKTEST_END_DATE = 2025-12-31`
 - `BACKTEST_MIN_STOCK_HOLDING = 70`
 - `BACKTEST_LONG_QUANTILE = 0.10`
-- `BACKTEST_SHORT_QUANTILE = 0.10`
+- `BACKTEST_SHORT_QUANTILE = 0` *(long-only)*
 - `BACKTEST_INCLUDE_ALPHA_BUCKET = False`
+- `BACKTEST_BENCHMARK = equal_weight`
 - `ROLLING_WINDOW = 245`
 - `FULL_SAMPLE_FALLBACK_MAX = 320`
 - `P_VALUE_THRESHOLD = 0.05`
 - `SMB_STABILITY_THRESHOLD = 1.5`
 - `VMG_STABILITY_THRESHOLD = 1.5`
 
-Metrics:
+Metrics (strategy vs **equal-weight mutual-fund benchmark**):
 
-- Strategy Ann. Return: `8.52%`
-- Benchmark Ann. Return: `3.98%`
-- Strategy Volatility: `6.08%`
-- Benchmark Volatility: `16.00%`
-- Strategy Sharpe: `1.38`
-- Information Ratio: `0.20`
-- Strategy Max Drawdown: `-5.39%`
-- Monthly Hit Rate: `53.27%`
-- Rebalance Months: `107`
+| Metric | Strategy | Equal-Weight Peers |
+| --- | ---: | ---: |
+| Ann. Return | `12.24%` | `8.30%` |
+| Volatility | `20.54%` | `16.49%` |
+| Sharpe | `0.66` | `0.56` |
+| Max Drawdown | `-35.10%` | `-35.59%` |
+| Information Ratio | `0.74` | — |
+| Avg. Monthly Excess | `0.36%` | — |
+| Monthly Hit Rate | `57.01%` | — |
+| Rebalance Months | `107` | — |
 
 Source:
 
-- [performance_metrics_speedup.json](backtest_output_speedup_nnn_s2016_2025_h70_q10_a0_rw245_fb320/performance_metrics_speedup.json)
+- [performance_metrics_speedup.json](backtest_output_speedup/performance_metrics_speedup.json)
 
-Backtest chart:
+Backtest chart (strategy in gold, equal-weight peer benchmark in blue; the short-leg panel is
+empty because this run is long-only):
 
-![Daily Style-Alpha Long/Short Backtest](backtest_output_speedup_nnn_s2016_2025_h70_q10_a0_rw245_fb320/style_alpha_long_short_backtest_speedup.png)
+![Daily Style-Alpha Long-Only vs Equal-Weight Peers](backtest_output_speedup/style_alpha_backtest_speedup.png)
 
-### Other Backtest Results
+### Alternative mode: long/short vs the 80/20 market benchmark
+
+For reference, the earlier **dollar-neutral long/short** mode (`BACKTEST_SHORT_QUANTILE = 0.10`,
+`BACKTEST_BENCHMARK = 80_20`) trades market exposure for a much lower-volatility, higher-Sharpe
+profile (the benchmark in this table is `80% CSI 300 + 20% SSE Treasury`, not the peer average):
 
 | Sample | Strategy Ann. Return | Benchmark Ann. Return | Strategy Sharpe | Information Ratio | Strategy Max Drawdown | Rebalance Months | Source |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| `2016-2025` | `8.52%` | `3.98%` | `1.38` | `0.20` | `-5.39%` | `107` | [metrics](backtest_output_speedup_nnn_s2016_2025_h70_q10_a0_rw245_fb320/performance_metrics_speedup.json) |
 | `2015-2025` | `5.91%` | `4.90%` | `1.05` | `-0.00` | `-7.29%` | `119` | [metrics](backtest_output_speedup_15_25/performance_metrics_speedup.json) |
-| `2016-2025`, tuned `q=0.12` | `8.29%` | `3.98%` | `1.38` | `0.19` | `-4.31%` | `107` | [metrics](backtest_output_speedup_030_s2016_2025_h60_q12_a0_rw245_fb320/performance_metrics_speedup.json) |
 | `2020-2025` | `9.13%` | `-1.49%` | `1.27` | `0.53` | `-5.55%` | `59` | [metrics](parameter_search_output/047_s2020_2025_h65_q10_a0_rw245_fb320/performance_metrics_speedup.json) |
 
 
@@ -257,8 +276,14 @@ Several extensions are natural from here.
    The cleanest next step would be to rebuild the historical fund universe from a point-in-time data source such as Wind, then rerun the daily strategy on that broader historical universe and compare the results with the current active-fund sample.
 2. Study the regime-change question more formally.
    Current results are suggestive, but not yet a formal regime model. A useful next step would be to test whether regime changes can be identified in real time using observable signals, such as market volatility, style-factor leadership, cross-sectional breadth, or fund-universe maturity, and then condition the strategy parameters on those signals rather than using one fixed parameter set for the full sample.
-3. Test whether the framework generalizes beyond China.
-   A natural extension would be to port the same workflow to the US mutual-fund universe, for example using the CRSP Mutual Fund Database, and study whether the same style-alpha ranking logic works in a different market structure and fund ecosystem.
+3. Test whether the framework generalizes beyond China. **(Done — see [`../strategy_2026_US`](../strategy_2026_US).)**
+   The same workflow was ported to the U.S. CRSP mutual-fund universe. Result: with the identical
+   long-only-vs-equal-weight construction, the U.S. strategy only *matches* the equal-weight peer
+   benchmark and *loses* to a value-weight peer benchmark, and a 31k-combination grid search found
+   no robust, investable edge. This is consistent with the weak post-fee alpha persistence of U.S.
+   active funds (Carhart 1997; Fama–French 2010), and makes the China result a clean cross-market
+   contrast: the selection edge appears in the less-efficient, retail-dominated China market but
+   not in the highly competitive U.S. market.
 4. Add implementation frictions.
    The current backtest is useful as a research baseline, but a more realistic production test should incorporate turnover, subscription/redemption frictions, and trading-cost assumptions.
 5. Test robustness to alternative universe and benchmark definitions.

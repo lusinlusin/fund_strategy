@@ -28,12 +28,13 @@ HOLDING_PATH = DATA_DIR / "stock_holding_wide_2000_2025.csv"
 HS300_PATH = DATA_DIR / "benchmark" / "sh000300.csv"
 TREASURY_PATH = DATA_DIR / "benchmark" / "sh000012.csv"
 
-BACKTEST_START_DATE = "2020-01-01"
+BACKTEST_START_DATE = "2016-01-01"
 BACKTEST_END_DATE = "2025-12-31"
 BACKTEST_MIN_STOCK_HOLDING = 70
 BACKTEST_LONG_QUANTILE = 0.10
-BACKTEST_SHORT_QUANTILE = 0.10
+BACKTEST_SHORT_QUANTILE = 0
 BACKTEST_INCLUDE_ALPHA_BUCKET = False
+BACKTEST_BENCHMARK = "equal_weight"  # "80_20" or "equal_weight"
 BACKTEST_OUTPUT_DIR = BASE_DIR / "backtest_output_speedup"
 
 ROLLING_WINDOW = 245
@@ -202,6 +203,38 @@ def build_benchmark_return_series(rebalance_dates, hs300_path, treasury_path):
     benchmark_rows.append({"date": rebalance_index[-1], "benchmark_return": np.nan})
     benchmark_result = pd.DataFrame(benchmark_rows)
     return pd.Series(benchmark_result["benchmark_return"].to_numpy(), index=benchmark_result["date"])
+
+
+def build_equal_weight_benchmark_return_series(forward_fund_returns):
+    return forward_fund_returns.mean(axis=1, skipna=True).sort_index()
+
+
+def benchmark_label(benchmark_name):
+    labels = {
+        "80_20": "Benchmark 80/20",
+        "equal_weight": "Equal Weight Mutual Fund Benchmark",
+    }
+    if benchmark_name not in labels:
+        raise ValueError(
+            f"Unsupported BACKTEST_BENCHMARK={benchmark_name!r}; "
+            f"choose one of {sorted(labels)}."
+        )
+    return labels[benchmark_name]
+
+
+def build_backtest_benchmark_return_series(
+    benchmark_name,
+    period_boundary_dates,
+    forward_fund_returns,
+    hs300_path,
+    treasury_path,
+):
+    if benchmark_name == "80_20":
+        return build_benchmark_return_series(period_boundary_dates, hs300_path, treasury_path)
+    if benchmark_name == "equal_weight":
+        return build_equal_weight_benchmark_return_series(forward_fund_returns)
+    benchmark_label(benchmark_name)
+    raise AssertionError("unreachable")
 
 
 def classify_style(size_signal, value_signal):
@@ -503,26 +536,34 @@ def select_portfolio_holdings(snapshot, long_quantile, short_quantile, include_a
 
     holding_rows = []
     active_buckets = []
+    include_short = short_quantile > 0
 
     for style, bucket in eligible.groupby("style"):
         bucket = bucket.sort_values("alpha", ascending=False).reset_index(drop=True)
         bucket_size = len(bucket)
         long_count = max(1, math.ceil(bucket_size * long_quantile))
-        short_count = max(1, math.ceil(bucket_size * short_quantile))
-        selected_count = min(long_count, short_count, bucket_size // 2)
+        if include_short:
+            short_count = max(1, math.ceil(bucket_size * short_quantile))
+            selected_count = min(long_count, short_count, bucket_size // 2)
+        else:
+            selected_count = min(long_count, bucket_size)
         if selected_count < 1:
             continue
 
         long_bucket = bucket.head(selected_count)
-        short_bucket = bucket.tail(selected_count)
-        if set(long_bucket["fund_code"]).intersection(set(short_bucket["fund_code"])):
-            continue
+        if include_short:
+            short_bucket = bucket.tail(selected_count)
+            if set(long_bucket["fund_code"]).intersection(set(short_bucket["fund_code"])):
+                continue
+            short_codes = short_bucket["fund_code"].tolist()
+        else:
+            short_codes = []
 
         active_buckets.append(
             (
                 style,
                 long_bucket["fund_code"].tolist(),
-                short_bucket["fund_code"].tolist(),
+                short_codes,
             )
         )
 
@@ -532,7 +573,6 @@ def select_portfolio_holdings(snapshot, long_quantile, short_quantile, include_a
     bucket_weight = 1.0 / len(active_buckets)
     for style, long_codes, short_codes in active_buckets:
         long_weight = bucket_weight / len(long_codes)
-        short_weight = -bucket_weight / len(short_codes)
 
         for fund_code in long_codes:
             holding_rows.append(
@@ -544,6 +584,10 @@ def select_portfolio_holdings(snapshot, long_quantile, short_quantile, include_a
                 }
             )
 
+        if not include_short:
+            continue
+
+        short_weight = -bucket_weight / len(short_codes)
         for fund_code in short_codes:
             holding_rows.append(
                 {
@@ -560,11 +604,15 @@ def select_portfolio_holdings(snapshot, long_quantile, short_quantile, include_a
 def compute_side_return(holdings, period_return_row, side):
     side_holdings = holdings.loc[holdings["side"] == side].copy()
     if side_holdings.empty:
+        if side == "short":
+            return 0.0
         return np.nan
 
     side_holdings["period_return"] = side_holdings["fund_code"].map(period_return_row.to_dict())
     side_holdings = side_holdings.loc[side_holdings["period_return"].notna()].copy()
     if side_holdings.empty:
+        if side == "short":
+            return 0.0
         return np.nan
 
     if side == "long":
@@ -577,7 +625,7 @@ def compute_side_return(holdings, period_return_row, side):
     return float(-np.sum(weights * side_holdings["period_return"].to_numpy(dtype=float)))
 
 
-def compute_metrics(backtest):
+def compute_metrics(backtest, benchmark_name):
     periods_per_year = 12
 
     def annualized_return(cumulative_series, periods):
@@ -604,6 +652,7 @@ def compute_metrics(backtest):
     excess_returns = backtest["excess_return"]
 
     return {
+        "Benchmark": benchmark_label(benchmark_name),
         "Strategy Ann. Return": f"{annualized_return(backtest['strategy_cumulative'], len(backtest)):.2%}",
         "Benchmark Ann. Return": f"{annualized_return(backtest['benchmark_cumulative'], len(backtest)):.2%}",
         "Strategy Volatility": f"{annualized_volatility(strategy_returns):.2%}",
@@ -619,7 +668,7 @@ def compute_metrics(backtest):
     }
 
 
-def plot_results(backtest, metrics, save_path):
+def plot_results(backtest, metrics, save_path, benchmark_name):
     fig = plt.figure(figsize=(14, 10), facecolor="#0f1117")
     grid = fig.add_gridspec(3, 1, hspace=0.10, height_ratios=[2, 1, 1])
 
@@ -629,6 +678,9 @@ def plot_results(backtest, metrics, save_path):
     strategy_color = "#f0c040"
     long_color = "#00d4aa"
     short_color = "#ff4d6d"
+
+    long_only = bool((backtest["short_count"] == 0).all())
+    mode_label = "Long-Only" if long_only else "Long/Short"
 
     plot_curve = pd.DataFrame(
         {
@@ -647,9 +699,15 @@ def plot_results(backtest, metrics, save_path):
     plot_curve = pd.concat([initial_row, plot_curve], ignore_index=True)
 
     ax1 = fig.add_subplot(grid[0])
-    ax1.plot(plot_curve["holding_end_date"], plot_curve["benchmark_curve"], color=benchmark_color, lw=1.5, label="Benchmark 80/20")
-    ax1.plot(plot_curve["holding_end_date"], plot_curve["strategy_curve"], color=strategy_color, lw=1.5, label="Style-Alpha Long/Short")
-    ax1.set_title("Monthly Style-Alpha Long/Short Backtest (Speedup)", color=text_color, fontsize=14, pad=12)
+    ax1.plot(
+        plot_curve["holding_end_date"],
+        plot_curve["benchmark_curve"],
+        color=benchmark_color,
+        lw=1.5,
+        label=benchmark_label(benchmark_name),
+    )
+    ax1.plot(plot_curve["holding_end_date"], plot_curve["strategy_curve"], color=strategy_color, lw=1.5, label=f"Style-Alpha {mode_label}")
+    ax1.set_title(f"Monthly Style-Alpha {mode_label} Backtest (Speedup)", color=text_color, fontsize=14, pad=12)
     ax1.set_ylabel("Cumulative Return", color=text_color)
     ax1.legend(facecolor="#1a1a2e", edgecolor=grid_color, labelcolor=text_color, fontsize=9)
     ax1.set_facecolor("#0f1117")
@@ -660,7 +718,8 @@ def plot_results(backtest, metrics, save_path):
 
     ax2 = fig.add_subplot(grid[1], sharex=ax1)
     ax2.bar(backtest["holding_end_date"], backtest["long_return"], color=long_color, alpha=0.75, width=20, label="Long Leg")
-    ax2.bar(backtest["holding_end_date"], backtest["short_return"], color=short_color, alpha=0.65, width=20, label="Short Leg")
+    if not long_only:
+        ax2.bar(backtest["holding_end_date"], backtest["short_return"], color=short_color, alpha=0.65, width=20, label="Short Leg")
     ax2.axhline(0.0, color=grid_color, linewidth=1.0)
     ax2.set_ylabel("Monthly Return", color=text_color)
     ax2.legend(facecolor="#1a1a2e", edgecolor=grid_color, labelcolor=text_color, fontsize=8)
@@ -786,7 +845,13 @@ def run_backtest_speedup():
     boundary_index = pd.to_datetime(period_boundary_dates)
     nav_on_boundary_dates = nav_frame.reindex(boundary_index).ffill()
     forward_fund_returns = build_forward_return_frame(nav_on_boundary_dates)
-    benchmark_returns = build_benchmark_return_series(period_boundary_dates, HS300_PATH, TREASURY_PATH)
+    benchmark_returns = build_backtest_benchmark_return_series(
+        benchmark_name=BACKTEST_BENCHMARK,
+        period_boundary_dates=period_boundary_dates,
+        forward_fund_returns=forward_fund_returns,
+        hs300_path=HS300_PATH,
+        treasury_path=TREASURY_PATH,
+    )
 
     backtest_rows = []
     holding_rows = []
@@ -830,6 +895,8 @@ def run_backtest_speedup():
             continue
 
         benchmark_return = float(benchmark_returns.loc[pd.Timestamp(trade_date)])
+        if not math.isfinite(benchmark_return):
+            continue
         strategy_return = long_return + short_return
 
         backtest_rows.append(
@@ -874,14 +941,19 @@ def run_backtest_speedup():
     backtest["excess_return"] = backtest["strategy_return"] - backtest["benchmark_return"]
 
     holding_detail = pd.DataFrame(holding_rows)
-    metrics = compute_metrics(backtest)
+    metrics = compute_metrics(backtest, BACKTEST_BENCHMARK)
 
     BACKTEST_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     backtest.to_csv(BACKTEST_OUTPUT_DIR / "monthly_backtest_speedup.csv", index=False, encoding="utf-8-sig")
     holding_detail.to_csv(BACKTEST_OUTPUT_DIR / "monthly_holdings_speedup.csv", index=False, encoding="utf-8-sig")
     with (BACKTEST_OUTPUT_DIR / "performance_metrics_speedup.json").open("w", encoding="utf-8") as handle:
         json.dump(metrics, handle, ensure_ascii=False, indent=2)
-    plot_results(backtest, metrics, BACKTEST_OUTPUT_DIR / "style_alpha_long_short_backtest_speedup.png")
+    plot_results(
+        backtest,
+        metrics,
+        BACKTEST_OUTPUT_DIR / "style_alpha_backtest_speedup.png",
+        BACKTEST_BENCHMARK,
+    )
 
     print("\nBacktest metrics")
     for key, value in metrics.items():

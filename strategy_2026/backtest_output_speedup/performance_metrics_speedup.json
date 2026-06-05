@@ -1,0 +1,15 @@
+{
+  "Benchmark": "Equal Weight Mutual Fund Benchmark",
+  "Strategy Ann. Return": "12.24%",
+  "Benchmark Ann. Return": "8.30%",
+  "Strategy Volatility": "20.54%",
+  "Benchmark Volatility": "16.49%",
+  "Strategy Sharpe": "0.66",
+  "Benchmark Sharpe": "0.56",
+  "Information Ratio": "0.74",
+  "Strategy Max Drawdown": "-35.10%",
+  "Benchmark Max Drawdown": "-35.59%",
+  "Average Monthly Excess": "0.36%",
+  "Monthly Hit Rate": "57.01%",
+  "Rebalance Months": "107"
+}
