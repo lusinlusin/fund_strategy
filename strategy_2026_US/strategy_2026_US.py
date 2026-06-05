@@ -687,6 +687,9 @@ def plot_results(backtest, metrics, save_path):
     long_color = "#00d4aa"
     short_color = "#ff4d6d"
 
+    long_only = bool((backtest["short_count"] == 0).all())
+    mode_label = "Long-Only" if long_only else "Long/Short"
+
     plot_curve = pd.DataFrame(
         {
             "holding_end_date": backtest["holding_end_date"],
@@ -708,8 +711,8 @@ def plot_results(backtest, metrics, save_path):
     ax1 = fig.add_subplot(grid[0])
     ax1.plot(plot_curve["holding_end_date"], plot_curve["benchmark_curve"], color=benchmark_color, lw=1.5, label="Equal-Weight Funds")
     ax1.plot(plot_curve["holding_end_date"], plot_curve["vw_benchmark_curve"], color=vw_benchmark_color, lw=1.5, label="Value-Weight Funds (TNA)")
-    ax1.plot(plot_curve["holding_end_date"], plot_curve["strategy_curve"], color=strategy_color, lw=1.5, label="Style-Alpha Long/Short")
-    ax1.set_title("Annual-Rebalanced U.S. Style-Alpha Long/Short Backtest", color=text_color, fontsize=14, pad=12)
+    ax1.plot(plot_curve["holding_end_date"], plot_curve["strategy_curve"], color=strategy_color, lw=1.5, label=f"Style-Alpha {mode_label}")
+    ax1.set_title(f"Annual-Rebalanced U.S. Style-Alpha {mode_label} Backtest", color=text_color, fontsize=14, pad=12)
     ax1.set_ylabel("Cumulative Return", color=text_color)
     ax1.legend(facecolor="#1a1a2e", edgecolor=grid_color, labelcolor=text_color, fontsize=9)
     ax1.set_facecolor("#0f1117")
@@ -720,7 +723,8 @@ def plot_results(backtest, metrics, save_path):
 
     ax2 = fig.add_subplot(grid[1], sharex=ax1)
     ax2.bar(backtest["holding_end_date"], backtest["long_return"], color=long_color, alpha=0.75, width=20, label="Long Leg")
-    ax2.bar(backtest["holding_end_date"], backtest["short_return"], color=short_color, alpha=0.65, width=20, label="Short Leg")
+    if not long_only:
+        ax2.bar(backtest["holding_end_date"], backtest["short_return"], color=short_color, alpha=0.65, width=20, label="Short Leg")
     ax2.axhline(0.0, color=grid_color, linewidth=1.0)
     ax2.set_ylabel("Monthly Return", color=text_color)
     ax2.legend(facecolor="#1a1a2e", edgecolor=grid_color, labelcolor=text_color, fontsize=8)
@@ -950,7 +954,7 @@ def run_backtest_monthly():
     holding_detail.to_csv(BACKTEST_OUTPUT_DIR / "monthly_holdings_us.csv", index=False, encoding="utf-8-sig")
     with (BACKTEST_OUTPUT_DIR / "performance_metrics_us.json").open("w", encoding="utf-8") as handle:
         json.dump(metrics, handle, ensure_ascii=False, indent=2)
-    plot_results(backtest, metrics, BACKTEST_OUTPUT_DIR / "style_alpha_long_short_backtest_us.png")
+    plot_results(backtest, metrics, BACKTEST_OUTPUT_DIR / "style_alpha_backtest_us.png")
 
     print("\nBacktest metrics")
     for key, value in metrics.items():

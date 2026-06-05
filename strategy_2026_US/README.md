@@ -159,7 +159,7 @@ python strategy_2026_US_grid_search.py
 
 Outputs land in `backtest_output_annual/` (single run) and `parameter_search_output/`
 (searches): `monthly_backtest_us.csv`, `monthly_holdings_us.csv`,
-`performance_metrics_us.json`, and `style_alpha_long_short_backtest_us.png`.
+`performance_metrics_us.json`, and `style_alpha_backtest_us.png`.
 
 ---
 
